@@ -10,7 +10,7 @@ npcs_module::npc::npc(uint16_t id, uint16_t model_id, const CVector &position) {
   }
   request_model(model_id);
   ped = std::make_unique<CCivilianPed>(PED_TYPE_CIVMALE, model_id);
-  if (is_ped_valid()) { // can it fail ped creation?
+  if (ped != nullptr) { // can it fail ped creation?
     ped->SetCharCreatedBy(2); // PED_MISSION
     ped->SetPosn(position);
     ped->SetOrientation(0.f, 0.f, 0.f);
