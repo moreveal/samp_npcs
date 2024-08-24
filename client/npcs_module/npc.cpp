@@ -126,6 +126,7 @@ void npcs_module::npc::set_health(float health) {
   ped->m_fMaxHealth = std::max(health, ped->m_fMaxHealth);
 
   if (health <= 0.f && get_active_task_type() != TASK_COMPLEX_DIE) {
+    clear_active_task(true);
     auto task = new CTaskComplexDie(WEAPON_UNARMED,
                                     ANIM_GROUP_DEFAULT,
                                     0xF,
@@ -136,10 +137,9 @@ void npcs_module::npc::set_health(float health) {
                                     0,
                                     false);
     set_current_task(task);
-//    ped->SetPedState(PEDSTATE_DEAD);
   } else if (health > 0.f && get_active_task_type() == TASK_COMPLEX_DIE) {
     // TODO: Reviving is not working
-//    get_active_task()->MakeAbortable(ped.get(), ABORT_PRIORITY_IMMEDIATE, nullptr);
+    // TODO: Some changes applied to tasks setter, probably can work now
     stand_still();
   }
 }
@@ -194,6 +194,7 @@ void npcs_module::npc::update() {
   }
 
   if (is_dead() && get_active_task_type() != TASK_COMPLEX_DIE) {
+    clear_active_task(true);
     auto task = new CTaskComplexDie(WEAPON_UNARMED,
                                     ANIM_GROUP_DEFAULT,
                                     0xF,
@@ -284,7 +285,7 @@ void npcs_module::npc::stand_still() {
   if (!is_ped_valid())
     return;
 
-  clear_active_task();
+  clear_active_task(true);
   auto task = new CTaskSimpleStandStill(0, true, false, 8.0);
   set_current_task(task);
 
@@ -455,9 +456,37 @@ CTask *npcs_module::npc::get_active_task() const {
   return ped->m_pIntelligence->m_TaskMgr.m_aPrimaryTasks[kTaskIdPlaceTo];
 }
 
-void npcs_module::npc::clear_active_task() {
+void npcs_module::npc::clear_active_task(bool immediately) {
   if (!is_ped_valid())
     return;
+
+  auto destroy_task = [&](int type, bool immediately = false) {
+    auto result = true;
+
+    auto task = ped->m_pIntelligence->m_TaskMgr.m_aPrimaryTasks[type];
+    if (task != nullptr) {
+      result = task->MakeAbortable(ped.get(), immediately ? ABORT_PRIORITY_IMMEDIATE : ABORT_PRIORITY_URGENT, nullptr);
+      if (result) {
+        ped->m_pIntelligence->m_TaskMgr.SetTask(nullptr, type, false);
+      }
+    }
+
+    return result;
+  };
+
+  auto destroy_secondary_task = [&](int type, bool immediately = false) {
+    auto result = true;
+
+    auto task = ped->m_pIntelligence->m_TaskMgr.m_aSecondaryTasks[type];
+    if (task != nullptr) {
+      result = task->MakeAbortable(ped.get(), immediately ? ABORT_PRIORITY_IMMEDIATE : ABORT_PRIORITY_URGENT, nullptr);
+      if (result) {
+        ped->m_pIntelligence->m_TaskMgr.SetTaskSecondary(nullptr, type);
+      }
+    }
+
+    return result;
+  };
 
   { // Reset tasks variables
     player_attack_to = kInvalidTargetId;
@@ -465,19 +494,29 @@ void npcs_module::npc::clear_active_task() {
   }
 
   for (auto i = 0; i < (5 - 1); ++i) {
-    ped->m_pIntelligence->m_TaskMgr.SetTask(nullptr, i, false);
+    destroy_task(i, immediately);
+  }
+
+  { // Cleanup secondary attack & duck tasks
+    destroy_secondary_task(TASK_SECONDARY_ATTACK, immediately);
+    destroy_secondary_task(TASK_SECONDARY_DUCK, immediately);
   }
 
   // Cleanup animation
   auto ped_pos = ped->GetPosition();
   ped_pos.z += 0.001f;
-  ped->SetPosn(ped_pos);
-  ped->SetMoveState(PEDMOVE_STILL);
+  ped->Teleport(ped_pos, false);
+
+  ped->SetIdle();
 }
 
 void npcs_module::npc::set_current_task(CTask *task) {
   if (!is_ped_valid())
     return;
+
+  if (auto existingTask = ped->m_pIntelligence->m_TaskMgr.m_aPrimaryTasks[kTaskIdPlaceTo]; existingTask != nullptr) {
+    existingTask->MakeAbortable(ped.get(), ABORT_PRIORITY_IMMEDIATE, nullptr);
+  }
 
   ped->m_pIntelligence->m_TaskMgr.SetTask(task, kTaskIdPlaceTo, false);
 }

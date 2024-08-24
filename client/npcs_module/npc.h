@@ -75,7 +75,7 @@ private:
 
   eTaskType get_active_task_type() const;
   CTask *get_active_task() const;
-  void clear_active_task();
+  void clear_active_task(bool immediately = false);
   void set_current_task(CTask *task);
 
   CWeapon *get_current_weapon();
