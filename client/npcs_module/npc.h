@@ -45,7 +45,7 @@ public:
 
   void update();
   void update_from_sync(const struct npc_sync_receive_data_t &data);
-  void send_sync_if_required();
+  bool send_sync_if_required();
 
   // Tasks
   void attack_player(uint16_t samp_player_id);

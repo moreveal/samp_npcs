@@ -247,28 +247,37 @@ void npcs_module::npc::update_from_sync(const npc_sync_receive_data_t &data) {
 //  }
 }
 
-void npcs_module::npc::send_sync_if_required() {
-  const auto now = std::chrono::steady_clock::now();
-  if (is_ped_valid() && now - last_sync_send_check > get_sync_send_rate()) {
-    auto other_closer_player = 0xFFFF;
-    if (sent_sync_once) { // we need to send sync once at least to let server know that we have an installed plugin
-      const auto npc_pos = ped->GetPosition();
-      const auto my_player_id = utils::samp_get_my_id();
-      const auto my_distance_to_npc = DistanceBetweenPoints(npc_pos, FindPlayerPed()->GetPosition());
-      for (auto i = 0; i < 1000; ++i) {
-        if (i == my_player_id) continue;
-        if (auto other_player_ped = utils::get_samp_player_ped_game_ptr(i);
-            other_player_ped != nullptr && !utils::samp_is_player_afk(i) && DistanceBetweenPoints(other_player_ped->GetPosition(), npc_pos) < my_distance_to_npc) {
-          other_closer_player = i;
-          break;
-        }
+bool npcs_module::npc::send_sync_if_required() {
+  if (!is_ped_valid()) return false;
+
+  auto am_i_the_closest_to_npc = [this]() {
+    const auto npc_pos = ped->GetPosition();
+    const auto my_player_id = utils::samp_get_my_id();
+    const auto my_distance_to_npc = DistanceBetweenPoints(npc_pos, FindPlayerPed()->GetPosition());
+    for (auto i = 0; i < 1000; ++i) {
+      if (i == my_player_id) continue;
+      if (auto other_player_ped = utils::get_samp_player_ped_game_ptr(i);
+          other_player_ped != nullptr && !utils::samp_is_player_afk(i) && DistanceBetweenPoints(other_player_ped->GetPosition(), npc_pos) < my_distance_to_npc) {
+        return false;
       }
     }
-    if (other_closer_player == 0xFFFF) { // we're the closest to npc player
+    return true;
+  };
+
+  const auto now = std::chrono::steady_clock::now();
+
+  auto sent_sync = false;
+
+  if (now - last_sync_send_check > get_sync_send_rate()) {
+    const auto should_send_this_frame = !sent_sync_once || am_i_the_closest_to_npc();
+    if (should_send_this_frame) {
       send_sync();
+      sent_sync = true;
     }
     last_sync_send_check = now;
   }
+
+  return sent_sync;
 }
 
 void npcs_module::npc::stand_still() {
@@ -348,7 +357,7 @@ std::chrono::milliseconds npcs_module::npc::get_sync_send_rate() const {
     default_sendrate *= 3;
   }
 
-  return default_sendrate;
+  return default_sendrate + ms(npcs.size());
 }
 
 bool npcs_module::npc::is_dead() const {
