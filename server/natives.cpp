@@ -163,6 +163,12 @@ SCRIPT_API(TaskNpcFollowPlayer, bool(INpc &npc, IPlayer &target)) {
   return true;
 }
 
+SCRIPT_API(TaskNpcPlayAnimation, bool(INpc &npc, const std::string& animlib, const std::string& animname, float delta, bool loop, bool lockX, bool lockY, bool freeze, uint32_t time)) {
+  const AnimationData animationData(delta, loop, lockX, lockY, freeze, time, animlib, animname);
+  npc.playAnimation(animationData);
+  return true;
+}
+
 ///////////////
 
 // Npcs param lookup

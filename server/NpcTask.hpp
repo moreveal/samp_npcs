@@ -78,9 +78,38 @@ struct NpcTaskFollowPlayer final : NpcTask<3> {
   }
 };
 
+struct NpcTaskPlayAnimation final : NpcTask<4> {
+  AnimationData data;
+
+  void write(NetworkBitStream& bs) const override {
+    bs.writeDynStr8(data.lib);
+    bs.writeDynStr8(data.name);
+    bs.writeFLOAT(data.delta);
+    bs.writeUINT8(data.loop);
+    bs.writeUINT8(data.lockX);
+    bs.writeUINT8(data.lockY);
+    bs.writeUINT8(data.freeze);
+    bs.writeUINT32(data.time);
+  }
+
+  bool operator==(const NpcTask& other) const override {
+    const auto other_ = dynamic_cast<const NpcTaskPlayAnimation*>(&other);
+    return other_ != nullptr
+      && data.delta == other_->data.delta
+      && data.loop == other_->data.loop
+      && data.lockX == other_->data.lockX
+      && data.lockY == other_->data.lockY
+      && data.freeze == other_->data.freeze
+      && data.time == other_->data.time
+      && data.lib == other_->data.lib
+      && data.name == other_->data.name;
+  }
+};
+
 using NpcTasksSet = std::variant<
     NpcTaskStandStill,
     NpcTaskAttackPlayer,
     NpcTaskGoToPoint,
-    NpcTaskFollowPlayer
+    NpcTaskFollowPlayer,
+    NpcTaskPlayAnimation
 >;

@@ -2,7 +2,7 @@
 #include "NpcComponent.h"
 #include "NpcNetwork.hpp"
 
-Npc::Npc(int skin, Vector3 position)
+Npc::Npc(int skin, Vector3 position, bool* allAnimationLibraries, bool* validateAnimations)
     : skin(skin),
       pos(position),
       virtualWorld(0),
@@ -15,7 +15,10 @@ Npc::Npc(int skin, Vector3 position)
       stunAnimationEnabled(true),
       shouldBroadcastSyncPacket(false),
       weaponSkill(NpcWeaponSkillType_STD),
-      currentTask(NpcTaskStandStill()) {
+      currentTask(NpcTaskStandStill()),
+
+      allAnimationLibraries_(allAnimationLibraries),
+      validateAnimations_(validateAnimations) {
   /* Nothing to do */
 }
 
@@ -191,6 +194,17 @@ void Npc::attackPlayer(const IPlayer &player, bool aggressive) {
 void Npc::followPlayer(const IPlayer &player) {
   NpcTaskFollowPlayer task;
   task.target = &player;
+  currentTask = task;
+  broadcastActiveTask();
+}
+
+void Npc::playAnimation(const AnimationData &animation) {
+  if ((!validateAnimations_ || *validateAnimations_) && !animationLibraryValid(animation.lib, *allAnimationLibraries_))
+  {
+    return;
+  }
+  NpcTaskPlayAnimation task;
+  task.data = animation;
   currentTask = task;
   broadcastActiveTask();
 }

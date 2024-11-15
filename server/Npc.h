@@ -83,13 +83,19 @@ struct INpc : public IExtensible, public IEntity {
 
   // Npc will follow specified player
   virtual void followPlayer(const IPlayer &player) = 0;
+
+  /// Npc will play specified animation
+  virtual void playAnimation(const AnimationData &animation) = 0;
 };
 
 class Npc : public INpc,
             public PoolIDProvider,
             public NoCopy {
+  bool* allAnimationLibraries_;
+  bool* validateAnimations_;
+
 public:
-  Npc(int skin, Vector3 position);
+  Npc(int skin, Vector3 position, bool* allAnimationLibraries, bool* validateAnimations);
 
   void restream();
   void destream();
@@ -122,6 +128,7 @@ public:
   void goToPoint(const Vector3 &destination, NpcMoveMode mode) override;
   void attackPlayer(const IPlayer &player, bool aggressive) override;
   void followPlayer(const IPlayer &player) override;
+  void playAnimation(const AnimationData &animation) override;
 
   // Inherited from IEntity -> IIDProvider
   int getID() const override;

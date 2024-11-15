@@ -54,6 +54,14 @@ public:
   void stand_still();
   void wander();
   void go_to_point(const CVector &point, npc_move_mode_t mode = npc_move_mode_t::kRun);
+  void run_named_animation(const std::string &anim_library,
+                           const std::string &anim_name,
+                           float delta = 4.1f,
+                           bool loop = false,
+                           bool lock_x = false,
+                           bool lock_y = false,
+                           bool freeze = false,
+                           std::chrono::milliseconds time = std::chrono::milliseconds(0));
 
   bool is_stun_enabled() const;
   bool is_aggressive_attack() const;
@@ -89,6 +97,7 @@ private:
   static bool is_model_available(int model_id);
   static bool is_model_loaded(int model_id);
   static bool request_model(int model_id);
+  static bool request_animation(const std::string& animation);
   static void release_model(int model_id);
 };
 }

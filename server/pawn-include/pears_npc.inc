@@ -73,6 +73,7 @@ native bool:TaskNpcStandStill(NPC:npc);
 native bool:TaskNpcAttackPlayer(NPC:npc, playerid, bool:aggressive = false);
 native bool:TaskNpcGoToPoint(NPC:npc, Float:x, Float:y, Float:z, NPC_MOVE_MODE:mode = NPC_MOVE_MODE_WALK);
 native bool:TaskNpcFollowPlayer(NPC:npc, playerid);
+native bool:TaskNpcPlayAnimation(NPC:npc, const animationLibrary[], const animationName[], Float:delta, bool:loop, bool:lockX, bool:lockY, bool:freeze, time);
 
 /*
 

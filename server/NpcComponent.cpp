@@ -189,7 +189,7 @@ bool NpcComponent::isPlayerAfk(const IPlayer &player) const {
 }
 
 INpc *NpcComponent::create(int skin, Vector3 position) {
-  return storage.emplace(skin, position);
+  return storage.emplace(skin, position, core->getConfig().getBool("game.use_all_animations"), core->getConfig().getBool("game.validate_animations"));
 }
 
 void NpcComponent::release(int index) {

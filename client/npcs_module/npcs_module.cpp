@@ -50,6 +50,16 @@ void npcs_module::unregister_rpc() {
 void npcs_module::process_rpc(RPCParameters *params) {
   BitStream bs(params->input, BITS_TO_BYTES(params->numberOfBitsOfData), false);
 
+  auto read_str_u8 = [](BitStream &bs, std::string &out) -> bool
+  {
+    uint8_t len = 0;
+    if (!bs.Read(len)) return false;
+    out.resize(len + 1, '\0');
+    auto res = bs.Read(out.data(), len);
+    out.resize(out.find('\0'));
+    return res;
+  };
+
   uint8_t rpc_type_ = 0;
   bs.Read(rpc_type_);
 
@@ -170,6 +180,33 @@ void npcs_module::process_rpc(RPCParameters *params) {
       bs.Read(target_player_id);
 
       npc.follow_player(target_player_id);
+      break;
+    }
+    case 4: { // run named anim
+      std::string anim_lib;
+      std::string anim_name;
+      float delta;
+      uint8_t loop_;
+      uint8_t lock_x_;
+      uint8_t lock_y_;
+      uint8_t freeze_;
+      uint32_t time;
+
+      read_str_u8(bs, anim_lib);
+      read_str_u8(bs, anim_name);
+      bs.Read(delta);
+      bs.Read(loop_);
+      bs.Read(lock_x_);
+      bs.Read(lock_y_);
+      bs.Read(freeze_);
+      bs.Read(time);
+
+      bool loop = loop_ != 0;
+      bool lock_x = lock_x_ != 0;
+      bool lock_y = lock_y_ != 0;
+      bool freeze = freeze_ != 0;
+
+      npc.run_named_animation(anim_lib, anim_name, delta, loop, lock_x, lock_y, freeze, std::chrono::milliseconds(time));
       break;
     }
     default: {

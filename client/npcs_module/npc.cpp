@@ -3,6 +3,8 @@
 
 #include "npcs_module.h"
 
+#include <extensions/ScriptCommands.h>
+
 npcs_module::npc::npc(uint16_t id, uint16_t model_id, const CVector &position) {
   my_id = id;
   if (!is_ped_model(model_id)) {
@@ -330,6 +332,31 @@ void npcs_module::npc::go_to_point(const CVector &point, npc_move_mode_t mode) {
   set_current_task(task);
 }
 
+void npcs_module::npc::run_named_animation(const std::string &anim_library,
+                                           const std::string &anim_name,
+                                           float delta,
+                                           bool loop,
+                                           bool lock_x,
+                                           bool lock_y,
+                                           bool freeze,
+                                           std::chrono::milliseconds time) {
+  if (!is_ped_valid() || is_dead())
+    return;
+
+  clear_active_task();
+
+  if (anim_library.length() == 0 || anim_name.length() == 0)
+    return;
+
+  if (anim_library.length() > 15 || anim_name.length() > 24)
+    return;
+
+  if (!request_animation(anim_library))
+    return;
+
+  plugin::Command<plugin::Commands::TASK_PLAY_ANIM>(static_cast<CPed*>(ped.get()), anim_name.c_str(), anim_library.c_str(), delta, int(loop), int(lock_x), int(lock_y), int(freeze), int(time.count()));
+}
+
 bool npcs_module::npc::is_stun_enabled() const {
   return stun_enabled;
 }
@@ -573,6 +600,22 @@ bool npcs_module::npc::request_model(int model_id) {
 //    }
   }
   return true;
+}
+
+bool npcs_module::npc::request_animation(const std::string &animation) {
+  using namespace plugin;
+  auto has_animation_loaded = [&animation]() {
+    return Command<Commands::HAS_ANIMATION_LOADED>(animation.c_str());
+  };
+  auto request_animation = [&animation]() {
+    Command<Commands::REQUEST_ANIMATION>(animation.c_str());
+    CStreaming::LoadAllRequestedModels(false);
+  };
+
+  if (!has_animation_loaded()) {
+    request_animation();
+  }
+  return has_animation_loaded();
 }
 
 void npcs_module::npc::release_model(int model_id) {
