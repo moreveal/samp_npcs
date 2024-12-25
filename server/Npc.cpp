@@ -340,39 +340,8 @@ bool Npc::updateFromSync(const NpcSyncPacket &syncPacket, IPlayer *sender) {
   }
 
   // Allow sync packet only from the closest to npc player
-  if (sender != nullptr) {
-    const IPlayer *prioritizedPlayer = nullptr;
-    if (const auto task = std::get_if<NpcTaskFollowPlayer>(&currentTask); task != nullptr) {
-      prioritizedPlayer = task->target;
-    }
-//    else if (const auto task = std::get_if<NpcTaskAttackPlayer>(&currentTask); task != nullptr) {
-//      prioritizedPlayer = task->target;
-//    }
-    if (prioritizedPlayer != nullptr
-      && (NpcComponent::instance().isPlayerAfk(*prioritizedPlayer) || !isStreamedInForPlayer(*prioritizedPlayer) || !verifiedSupportedPlayers_.valid(prioritizedPlayer->getID()))
-    ) {
-      prioritizedPlayer = nullptr; // well, yeah
-    }
-
-    if (prioritizedPlayer != nullptr) {
-      if (sender != prioritizedPlayer) {
-        return false;
-      }
-    } else {
-      // player in spectator shouldn't have the same rights to send sync, instead, prioritize non-spectating ones
-      const auto distFromPlayer = glm::distance(sender->getPosition(), pos) + ((sender->getState() == PlayerState_Spectating) ? 5.f : 0.f);
-      const auto &entries = streamedFor_.entries();
-      for (const auto comparable : entries) {
-        if (comparable == sender || NpcComponent::instance().isPlayerAfk(*comparable) || !verifiedSupportedPlayers_.valid(comparable->getID())) {
-          continue;
-        }
-        // player in spectator shouldn't have the same rights to send sync, instead, prioritize non-spectating one
-        const auto otherDist = glm::distance(comparable->getPosition(), pos) + ((comparable->getState() == PlayerState_Spectating) ? 5.f : 0.f);
-        if (otherDist < distFromPlayer) {
-          return false;
-        }
-      }
-    }
+  if (sender != nullptr && !isPlayerReliableForSync(*sender)) {
+    return false;
   }
 
   shouldBroadcastSyncPacket = true;
