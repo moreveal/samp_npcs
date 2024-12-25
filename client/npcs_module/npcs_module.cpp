@@ -209,6 +209,18 @@ void npcs_module::process_rpc(RPCParameters *params) {
       npc.run_named_animation(anim_lib, anim_name, delta, loop, lock_x, lock_y, freeze, std::chrono::milliseconds(time));
       break;
     }
+    case 5: { // attack npc
+      uint16_t target_npc_id = 0xFFFF;
+      uint8_t is_aggressive_ = 0;
+
+      bs.Read(target_npc_id);
+      bs.Read(is_aggressive_);
+
+      auto is_aggressive = is_aggressive_ != 0;
+
+      npc.attack_npc(target_npc_id, is_aggressive);
+      break;
+    }
     default: {
       // Considered as stand still task (0 id)
       npc.stand_still();
@@ -319,13 +331,28 @@ bool npcs_module::handle_damage(CEntity *damager,
       bs.Write<float>(amount);
       bs.Write<uint8_t>(weapon_type);
       bs.Write<uint8_t>(body_part);
+      bs.Write<uint16_t>(0xFFFF);
       send_control_rpc(bs);
 
       return true; // npc health should be sent by server
     }
   } else if (auto npc_iter = find_npc_by_game_ped(receiver); npc_iter != npcs.end()) {
+    auto giving_damage_npc_iter = find_npc_by_game_ped(reinterpret_cast<CPed*>(damager));
+    if (giving_damage_npc_iter != npcs.end()) {
+      auto npc_id = npc_iter->first;
+      auto giving_damage_npc_id = giving_damage_npc_iter->first;
+
+      BitStream bs;
+      bs.Write(static_cast<uint8_t>(control_rpc_id_t::kTakeDamage));
+      bs.Write<uint16_t>(npc_id);
+      bs.Write<float>(amount);
+      bs.Write<uint8_t>(weapon_type);
+      bs.Write<uint8_t>(body_part);
+      bs.Write<uint16_t>(giving_damage_npc_id);
+      send_control_rpc(bs);
+    }
+
     return true; // npc health should be changed only by server
-    // fixes of npc being killed accidentally by another npc (lol)
   }
   return false;
 }
@@ -334,8 +361,6 @@ bool npcs_module::handle_hit(CEntity *damager, CEntity *receiver) {
   if (!utils::samp_is_playing())
     return false;
   if (damager == nullptr || receiver == nullptr)
-    return false;
-  if (const auto my_ped = FindPlayerPed(); my_ped == nullptr || (receiver != my_ped && utils::get_ped_vehicle(my_ped) != receiver))
     return false;
 
   auto damager_ped = reinterpret_cast<CPed *>(damager);

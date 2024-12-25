@@ -27,6 +27,9 @@
 #include <CCivilianPed.h>
 #include <CTask.h>
 #include <CTaskComplex.h>
+#include <CTaskComplexEnterCarAsPassenger.h>
+#include <CTaskComplexLeaveCar.h>
+#include <CTaskSimpleGangDriveBy.h>
 
 #include <CTaskComplexKillPedOnFoot.h>
 #include <CTaskSimpleStandStill.h>

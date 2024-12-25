@@ -144,6 +144,84 @@ void npcs_module::npc::set_health(float health) {
   }
 }
 
+void npcs_module::npc::put_in_vehicle(CVehicle *vehicle, int seat) {
+  if (!is_ped_valid())
+    return;
+
+  if (seat == 0) {
+    if (vehicle->m_pDriver != nullptr) {
+      return;
+    }
+    plugin::Command<plugin::Commands::WARP_CHAR_INTO_CAR>(ped.get(), vehicle);
+  } else {
+    auto can_be_put_in_a_passenger_seat = [](CVehicle *vehicle, int seat) {
+      if (vehicle->m_nNumPassengers >= vehicle->m_nMaxPassengers) {
+        return false;
+      }
+      return vehicle->m_nMaxPassengers > 0 && seat < vehicle->m_nMaxPassengers && vehicle->m_apPassengers[seat] == nullptr;
+    };
+    if (!can_be_put_in_a_passenger_seat(vehicle, seat - 1)) {
+      return;
+    }
+    plugin::Command<plugin::Commands::WARP_CHAR_INTO_CAR_AS_PASSENGER>(ped.get(), vehicle, seat - 1);
+  }
+}
+
+void npcs_module::npc::remove_from_vehicle() {
+  if (!is_ped_valid())
+    return;
+
+  if (get_vehicle() == nullptr) {
+    return;
+  }
+
+  const auto pos = ped->GetPosition();
+  plugin::Command<plugin::Commands::WARP_CHAR_FROM_CAR_TO_COORD>(ped.get(), pos.x, pos.y, pos.z + 1.f);
+}
+
+void npcs_module::npc::enter_vehicle(CVehicle *vehicle, int seat, std::chrono::milliseconds timeout) {
+  if (!is_ped_valid())
+    return;
+
+  if (get_vehicle() != nullptr) {
+    return;
+  }
+
+  if (seat == 0) {
+    plugin::Command<plugin::Commands::TASK_ENTER_CAR_AS_DRIVER>(ped.get(), vehicle, int(timeout.count()));
+  } else {
+    // seat -1 = any seat
+    auto can_enter_a_passenger_seat = [](CVehicle *vehicle, int seat) {
+      if (seat < 0) {
+        return vehicle->m_nNumPassengers < vehicle->m_nMaxPassengers;
+      }
+      if (vehicle->m_nNumPassengers >= vehicle->m_nMaxPassengers) {
+        return false;
+      }
+      return vehicle->m_nMaxPassengers > 0 && seat < vehicle->m_nMaxPassengers && vehicle->m_apPassengers[seat] == nullptr;
+    };
+    if (!can_enter_a_passenger_seat(vehicle, seat - 1)) {
+      return;
+    }
+    plugin::Command<plugin::Commands::TASK_ENTER_CAR_AS_PASSENGER>(ped.get(), vehicle, int(timeout.count()), seat);
+  }
+}
+
+void npcs_module::npc::exit_vehicle(bool immediately) {
+  if (!is_ped_valid())
+    return;
+
+  if (get_vehicle() == nullptr) {
+    return;
+  }
+
+  if (immediately) {
+    remove_from_vehicle();
+  } else {
+    plugin::Command<plugin::Commands::TASK_LEAVE_CAR>(ped.get(), ped->m_pVehicle);
+  }
+}
+
 void npcs_module::npc::attack_player(uint16_t samp_player_id, bool aggressive) {
   if (!is_ped_valid() || is_dead() || utils::samp_get_player_health(samp_player_id) <= 0.f) {
     aggressive_attack = aggressive;
@@ -156,7 +234,48 @@ void npcs_module::npc::attack_player(uint16_t samp_player_id, bool aggressive) {
   player_attack_to = samp_player_id; // set one more time
   aggressive_attack = aggressive;
   if (const auto player_ped = utils::get_samp_player_ped_game_ptr(player_attack_to); player_ped != nullptr) {
-    auto task = new CTaskComplexKillPedOnFoot(player_ped, -1, 0, 0, 20, 1);
+    if (get_vehicle() != nullptr) {
+      auto task = new CTaskSimpleGangDriveBy(player_ped, nullptr, 100.f, 85, 8 /*eDrivebyStyle::AI_ALL_DIRN*/, false);
+      set_current_task(task);
+    } else {
+      auto task = new CTaskComplexKillPedOnFoot(player_ped, -1, 0, 0, 20, 1);
+      set_current_task(task);
+    }
+  }
+}
+
+void npcs_module::npc::attack_npc(uint16_t samp_npc_id, bool aggressive) {
+  auto apply_fields = [&]() {
+    aggressive_attack = aggressive;
+    npc_attack_to = samp_npc_id;
+  };
+  auto get_npc_ped = [](uint16_t npc_id) -> CPed * {
+    auto npc_iter = npcs_module::npcs.find(npc_id);
+    if (npc_iter == npcs_module::npcs.end()) {
+      return nullptr;
+    }
+    return npc_iter->second.get_ped();
+  };
+
+  if (!is_ped_valid() || is_dead()) {
+    apply_fields(); // will probably attack later
+    return;
+  }
+
+  auto target_npc_ped = get_npc_ped(samp_npc_id);
+  if (target_npc_ped == nullptr || target_npc_ped->m_fHealth < 0.f) {
+    apply_fields(); // will probably attack later
+    return;
+  }
+
+  clear_active_task();
+
+  apply_fields(); // set one more time
+  if (get_vehicle() != nullptr) {
+    auto task = new CTaskSimpleGangDriveBy(target_npc_ped, nullptr, 100.f, 85, 8 /*eDrivebyStyle::AI_ALL_DIRN*/, false);
+    set_current_task(task);
+  } else {
+    auto task = new CTaskComplexKillPedOnFoot(target_npc_ped, -1, 0, 0, 20, 1);
     set_current_task(task);
   }
 }
@@ -187,11 +306,11 @@ void npcs_module::npc::update() {
   if (!is_ped_valid())
     return;
 
-  // TODO: NPC is attacking another player even if he's dead
-  //  need to check remote player health
-  if (should_attack_target() && !is_attacking_target()) {
-    attack_player(get_attack_target(), aggressive_attack);
-  } else if (should_follow_target() && !is_following_target()) {
+  if (should_attack_player_target() && !is_attacking_player_target()) {
+    attack_player(get_attack_player_target(), aggressive_attack);
+  } else if (should_attack_npc_target() && !is_attacking_npc_target()) {
+    attack_npc(get_attack_npc_target(), aggressive_attack);
+  }else if (should_follow_target() && !is_following_target()) {
     follow_player(get_follow_target());
   }
 
@@ -223,23 +342,36 @@ void npcs_module::npc::update_from_sync(const npc_sync_receive_data_t &data) {
   const auto am_i_falling = ped->m_vecMoveSpeed.z < -0.03f;
   const auto am_i_moving = ped->m_vecMoveSpeed.Magnitude() >= 0.03f; // 0.0308 when walking, 0.08 when running and 0.12 when sprinting
 
-  if (dist > (am_i_moving ? 3.25f : 2.7f)) {
-    if (am_i_falling && dist_2d <= 0.08f && z_diff <= z_movespeed_multiplied) {
-//      std::cout << "N! Diff: " << dist << "; in 2d: " << dist_2d << std::endl;
-//      std::cout << "N! Z Diff: " << z_diff << "; " << z_movespeed_multiplied << std::endl;
-//      std::cout << "N! Move speed: " << movespeed_multiplied << "; " << (movespeed_multiplied / 10.f) << std::endl;
-//      std::cout << "N! Move speed: " << ped->m_vecMoveSpeed.x << '\t' << ped->m_vecMoveSpeed.y << '\t'
-//                << ped->m_vecMoveSpeed.z << std::endl;
-    } else {
-//      std::cout << "U! Updated pos!" << my_id << std::endl;
-//      std::cout << "U! Diff: " << dist << "; in 2d: " << dist_2d << std::endl;
-//      std::cout << "U! Z Diff: " << z_diff << "; " << z_movespeed_multiplied << std::endl;
-//      std::cout << "U! Move speed: " << movespeed_multiplied << "; " << (movespeed_multiplied / 10.f) << std::endl;
-//      std::cout << "U! Move speed: " << ped->m_vecMoveSpeed.x << '\t' << ped->m_vecMoveSpeed.y << '\t'
-//                << ped->m_vecMoveSpeed.z << std::endl;
-      set_position(sync_pos);
+  if (data.vehicle != 0xFFFF) {
+    auto vehicle = utils::get_samp_vehicle_game_ptr(data.vehicle);
+    if (vehicle != nullptr && get_vehicle() != vehicle) {
+      if (get_vehicle() != nullptr) {
+        remove_from_vehicle();
+      }
+      put_in_vehicle(vehicle, data.vehicle_seat);
     }
-//    ped->m_vecMoveSpeed.z = std::max(ped->m_vecMoveSpeed.z, -0.75f);
+  } else {
+    if (get_vehicle() != nullptr) {
+      remove_from_vehicle();
+    }
+    if (dist > (am_i_moving ? 3.25f : 2.7f)) {
+      if (am_i_falling && dist_2d <= 0.08f && z_diff <= z_movespeed_multiplied) {
+//        std::cout << "N! Diff: " << dist << "; in 2d: " << dist_2d << std::endl;
+//        std::cout << "N! Z Diff: " << z_diff << "; " << z_movespeed_multiplied << std::endl;
+//        std::cout << "N! Move speed: " << movespeed_multiplied << "; " << (movespeed_multiplied / 10.f) << std::endl;
+//        std::cout << "N! Move speed: " << ped->m_vecMoveSpeed.x << '\t' << ped->m_vecMoveSpeed.y << '\t'
+//                  << ped->m_vecMoveSpeed.z << std::endl;
+      } else {
+//        std::cout << "U! Updated pos!" << my_id << std::endl;
+//        std::cout << "U! Diff: " << dist << "; in 2d: " << dist_2d << std::endl;
+//        std::cout << "U! Z Diff: " << z_diff << "; " << z_movespeed_multiplied << std::endl;
+//        std::cout << "U! Move speed: " << movespeed_multiplied << "; " << (movespeed_multiplied / 10.f) << std::endl;
+//        std::cout << "U! Move speed: " << ped->m_vecMoveSpeed.x << '\t' << ped->m_vecMoveSpeed.y << '\t'
+//                  << ped->m_vecMoveSpeed.z << std::endl;
+        set_position(sync_pos);
+      }
+//      ped->m_vecMoveSpeed.z = std::max(ped->m_vecMoveSpeed.z, -0.75f);
+    }
   }
 
   set_health(data.health);
@@ -369,6 +501,13 @@ CPed *npcs_module::npc::get_ped() const {
   return is_ped_valid() ? ped.get() : nullptr;
 }
 
+CVehicle *npcs_module::npc::get_vehicle() const {
+  if (!is_ped_valid())
+    return nullptr;
+
+  return utils::get_ped_vehicle(ped.get());
+}
+
 std::chrono::milliseconds npcs_module::npc::get_sync_send_rate() const {
   using ms = std::chrono::milliseconds;
   if (!is_ped_valid()) {
@@ -445,31 +584,77 @@ bool npcs_module::npc::is_following_target() const {
 }
 
 bool npcs_module::npc::should_follow_target() const {
-  return get_follow_target() != kInvalidTargetId && !is_dead() && utils::samp_get_player_health(get_attack_target()) > 0.f;;
+  return get_follow_target() != kInvalidTargetId && !is_dead() && utils::samp_get_player_health(get_follow_target()) > 0.f;
 }
 
 uint16_t npcs_module::npc::get_follow_target() const {
   return player_follow_to;
 }
 
-bool npcs_module::npc::is_attacking_target() const {
+bool npcs_module::npc::is_attacking_player_target() const {
   if (!is_ped_valid())
     return false;
 
-  if (get_active_task_type() != TASK_COMPLEX_KILL_PED_ON_FOOT)
+  CPed* target = nullptr;
+  if (get_vehicle() != nullptr) {
+    if (get_active_task_type() == TASK_SIMPLE_GANG_DRIVEBY) {
+      const auto task_driveby = reinterpret_cast<CTaskSimpleGangDriveBy *>(get_active_task());
+      target = reinterpret_cast<CPed *>(task_driveby->m_pTargetEntity);
+    }
+  } else if (get_active_task_type() == TASK_COMPLEX_KILL_PED_ON_FOOT) {
+    const auto task_kill_ped_onfoot = reinterpret_cast<CTaskComplexKillPedOnFoot *>(get_active_task());
+    target = task_kill_ped_onfoot->m_pTarget;
+  }
+
+  return target != nullptr && target == utils::get_samp_player_ped_game_ptr(get_attack_player_target());
+}
+
+bool npcs_module::npc::should_attack_player_target() const {
+  return get_attack_player_target() != kInvalidTargetId && !is_dead() && utils::samp_get_player_health(get_attack_player_target()) > 0.f;
+}
+
+uint16_t npcs_module::npc::get_attack_player_target() const {
+  return player_attack_to;
+}
+
+bool npcs_module::npc::is_attacking_npc_target() const {
+  if (!is_ped_valid())
     return false;
 
-  const auto task_kill_ped_onfoot = reinterpret_cast<CTaskComplexKillPedOnFoot *>(get_active_task());
-  const auto target = task_kill_ped_onfoot->m_pTarget;
-  return target != nullptr && target == utils::get_samp_player_ped_game_ptr(get_attack_target());
+  CPed* target = nullptr;
+  if (get_vehicle() != nullptr) {
+    if (get_active_task_type() == TASK_SIMPLE_GANG_DRIVEBY) {
+      const auto task_driveby = reinterpret_cast<CTaskSimpleGangDriveBy *>(get_active_task());
+      target = reinterpret_cast<CPed *>(task_driveby->m_pTargetEntity);
+    }
+  } else if (get_active_task_type() == TASK_COMPLEX_KILL_PED_ON_FOOT) {
+    const auto task_kill_ped_onfoot = reinterpret_cast<CTaskComplexKillPedOnFoot *>(get_active_task());
+    target = task_kill_ped_onfoot->m_pTarget;
+  }
+
+  if (target == nullptr) {
+    return false;
+  }
+
+  auto target_npc_iter = npcs_module::npcs.find(get_attack_npc_target());
+  if (target_npc_iter == npcs_module::npcs.end()) return false;
+
+  return target_npc_iter->second.get_ped() == target;
 }
 
-bool npcs_module::npc::should_attack_target() const {
-  return get_attack_target() != kInvalidTargetId && !is_dead() && utils::samp_get_player_health(get_attack_target()) > 0.f;
+bool npcs_module::npc::should_attack_npc_target() const {
+  if (get_attack_npc_target() == kInvalidTargetId || is_dead()) {
+    return false;
+  }
+  auto target_npc_iter = npcs_module::npcs.find(get_attack_npc_target());
+  if (target_npc_iter == npcs_module::npcs.end()) return false;
+  auto target_npc_ped = target_npc_iter->second.get_ped();
+  if (target_npc_ped == nullptr) return false;
+  return target_npc_ped->m_fHealth > 0.f;
 }
 
-uint16_t npcs_module::npc::get_attack_target() const {
-  return player_attack_to;
+uint16_t npcs_module::npc::get_attack_npc_target() const {
+  return npc_attack_to;
 }
 
 eTaskType npcs_module::npc::get_active_task_type() const {
@@ -521,6 +706,7 @@ void npcs_module::npc::clear_active_task(bool immediately) {
 
   { // Reset tasks variables
     player_attack_to = kInvalidTargetId;
+    npc_attack_to = kInvalidTargetId;
     aggressive_attack = false;
     player_follow_to = kInvalidTargetId;
   }

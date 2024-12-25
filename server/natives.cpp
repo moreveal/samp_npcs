@@ -1,6 +1,7 @@
 #include <Server/Components/Pawn/impl/pawn_natives.hpp>
 
 #include "NpcComponent.h"
+#include "Server/Components/Vehicles/vehicle_seats.hpp"
 
 const int INVALID_NPC_ID = 0xFFFF;
 
@@ -140,6 +141,46 @@ SCRIPT_API(SetNpcWeaponSkill, bool(INpc &npc, uint8_t skill)) {
 
 ///////////////
 
+SCRIPT_API(PutNpcInVehicle, bool(INpc &npc, IVehicle& vehicle, int seat)) {
+  auto seatsCount = getVehiclePassengerSeats(vehicle.getModel());
+  if (seat < 0 || (seat > 0 && (seatsCount == 0xFF || seat > seatsCount))) {
+    return false;
+  }
+  npc.putInVehicle(vehicle, seat);
+  return true;
+}
+
+SCRIPT_API(RemoveNpcFromVehicle, bool(INpc &npc)) {
+  npc.removeFromVehicle();
+  return true;
+}
+
+SCRIPT_API_FAILRET(GetNpcVehicleID, INVALID_VEHICLE_ID, int(INpc &npc)) {
+  auto veh = npc.getVehicle();
+  if (veh != nullptr) {
+    return veh->getID();
+  }
+  return 0;
+}
+
+SCRIPT_API_FAILRET(GetNpcVehicleSeat, SEAT_NONE, int(INpc &npc)) {
+  return npc.getVehicleSeat();
+}
+
+SCRIPT_API(IsNpcInVehicle, bool(INpc &npc, IVehicle& targetVehicle))
+{
+  IVehicle* vehicle = npc.getVehicle();
+  return vehicle == &targetVehicle;
+}
+
+SCRIPT_API(IsNpcInAnyVehicle, bool(INpc &npc))
+{
+  IVehicle* vehicle = npc.getVehicle();
+  return vehicle != nullptr;
+}
+
+///////////////
+
 SCRIPT_API(TaskNpcStandStill, bool(INpc &npc)) {
   npc.standStill();
   return true;
@@ -147,6 +188,11 @@ SCRIPT_API(TaskNpcStandStill, bool(INpc &npc)) {
 
 SCRIPT_API(TaskNpcAttackPlayer, bool(INpc &npc, IPlayer &target, bool aggressive)) {
   npc.attackPlayer(target, aggressive);
+  return true;
+}
+
+SCRIPT_API(TaskNpcAttackNpc, bool(INpc &npc, INpc &target, bool aggressive)) {
+  npc.attackNpc(target, aggressive);
   return true;
 }
 

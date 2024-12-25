@@ -12,13 +12,16 @@ using namespace Impl;
 /// Npc death and damage event handlers
 struct NpcDamageEventHandler {
   virtual bool onPlayerGiveDamageNpc(INpc& npc, IPlayer& from, float amount, unsigned weapon, BodyPart part) { return true; }
+  virtual bool onNpcGiveDamageNpc(INpc& npc, INpc& from, float amount, unsigned weapon, BodyPart part) { return true; }
   virtual void onPlayerTakeDamageNpc(INpc& npc, IPlayer& to, float amount, unsigned weapon, BodyPart part) { }
-  virtual void onNpcDeath(INpc& npc, IPlayer& killer, int reason) { }
+  virtual void onNpcDeath(INpc& npc, IPlayer* killer, int reason) { }
 };
 
 class NpcComponent final : public PawnEventHandler,
                            public PlayerUpdateEventHandler,
                            public PoolEventHandler<IPlayer>,
+                           public PoolEventHandler<IVehicle>,
+                           public PoolEventHandler<INpc>,
                            public IPoolComponent<INpc>,
                            public CoreEventHandler,
                            public NpcDamageEventHandler,
@@ -49,12 +52,19 @@ public:
   // Inherited from PoolEventHandler<IPlayer>
   void onPoolEntryDestroyed(IPlayer &player) override;
 
+  // Inherited from PoolEventHandler<IVehicle>
+  void onPoolEntryDestroyed(IVehicle &vehicle) override;
+
+  // Inherited from PoolEventHandler<INpc>
+  void onPoolEntryDestroyed(INpc &npc) override;
+
   void onTick(Microseconds elapsed, TimePoint now) override;
 
   // Inherited from NpcDamageEventHandler
   bool onPlayerGiveDamageNpc(INpc& npc, IPlayer& from, float amount, unsigned weapon, BodyPart part) override;
+  bool onNpcGiveDamageNpc(INpc& npc, INpc& from, float amount, unsigned weapon, BodyPart part) override;
   void onPlayerTakeDamageNpc(INpc& npc, IPlayer& to, float amount, unsigned weapon, BodyPart part) override;
-  void onNpcDeath(INpc& npc, IPlayer& killer, int reason) override;
+  void onNpcDeath(INpc& npc, IPlayer* killer, int reason) override;
 
   static void updateNpcStateForPlayer(Npc &npc, IPlayer &player, float maxDist);
   bool isPlayerAfk(const IPlayer &player) const;
@@ -91,6 +101,7 @@ private:
   ICore *core = nullptr;
 
   IPawnComponent *pawnComponent = nullptr;
+  IVehiclesComponent *vehiclesComponent = nullptr;
   IPlayerPool *players = nullptr;
 
   DefaultEventDispatcher<NpcDamageEventHandler> npcDamageDispatcher;

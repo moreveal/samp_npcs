@@ -31,6 +31,7 @@ void NpcComponent::onLoad(ICore *c) {
   players->getPoolEventDispatcher().addEventHandler(this);
 
   getNpcDamageDispatcher().addEventHandler(this);
+  getPoolEventDispatcher().addEventHandler(this);
 }
 
 void NpcComponent::onInit(IComponentList *components) {
@@ -40,6 +41,11 @@ void NpcComponent::onInit(IComponentList *components) {
     pawnComponent->getEventDispatcher().addEventHandler(this);
     setAmxFunctions(pawnComponent->getAmxFunctions());
     setAmxLookups(components);
+  }
+  auto vehiclesComponent_ = components->queryComponent<IVehiclesComponent>();
+  if (vehiclesComponent_ != nullptr) {
+    vehiclesComponent = vehiclesComponent_;
+    vehiclesComponent->getPoolEventDispatcher().addEventHandler(this);
   }
 }
 
@@ -56,6 +62,11 @@ void NpcComponent::onFree(IComponent *component) {
     pawnComponent = nullptr;
     setAmxFunctions();
     setAmxLookups();
+  } else if (component == vehiclesComponent) {
+    vehiclesComponent = nullptr;
+    for (auto& npc : storage) {
+      npc->removeFromVehicle();
+    }
   }
 }
 
@@ -77,8 +88,12 @@ void NpcComponent::free() {
   if (pawnComponent != nullptr) {
     pawnComponent->getEventDispatcher().removeEventHandler(this);
   }
+  if (vehiclesComponent != nullptr) {
+    vehiclesComponent->getPoolEventDispatcher().removeEventHandler(this);
+  }
 
   getNpcDamageDispatcher().removeEventHandler(this);
+  getPoolEventDispatcher().removeEventHandler(this);
 }
 
 bool NpcComponent::onPlayerUpdate(IPlayer &player, TimePoint now) {
@@ -102,6 +117,23 @@ void NpcComponent::onPoolEntryDestroyed(IPlayer &player) {
     if (const auto task = std::get_if<NpcTaskAttackPlayer>(&npc_.currentTask); task != nullptr && task->target == &player) {
       npc->standStill();
     } else if (const auto task = std::get_if<NpcTaskFollowPlayer>(&npc_.currentTask); task != nullptr && task->target == &player) {
+      npc->standStill();
+    }
+  }
+}
+
+void NpcComponent::onPoolEntryDestroyed(IVehicle &vehicle) {
+  for (auto npc : storage) {
+    if (npc->getVehicle() == &vehicle) {
+      npc->removeFromVehicle();
+    }
+  }
+}
+
+void NpcComponent::onPoolEntryDestroyed(INpc &destroyed) {
+  for (auto npc : storage) {
+    auto &npc_ = dynamic_cast<Npc&>(*npc);
+    if (const auto task = std::get_if<NpcTaskAttackNpc>(&npc_.currentTask); task != nullptr && task->target == &destroyed) {
       npc->standStill();
     }
   }
@@ -136,6 +168,28 @@ bool NpcComponent::onPlayerGiveDamageNpc(INpc &npc, IPlayer &from, float amount,
   return true;
 }
 
+bool NpcComponent::onNpcGiveDamageNpc(INpc &npc, INpc &from, float amount, unsigned int weapon, BodyPart part) {
+  static constexpr auto publicName = "OnNpcGiveDamageNpc";
+
+  if (pawnComponent == nullptr) return true;
+
+  for (auto sideScript : pawnComponent->sideScripts()) {
+    auto ret = sideScript->Call(publicName, DefaultReturnValue_True, npc.getID(), from.getID(), amount, weapon, int(part));
+    if (!ret) {
+      return false;
+    }
+  }
+
+  if (auto mainScript = pawnComponent->mainScript(); mainScript != nullptr) {
+    auto ret = mainScript->Call(publicName, DefaultReturnValue_True, npc.getID(), from.getID(), amount, weapon, int(part));
+    if (!ret) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 void NpcComponent::onPlayerTakeDamageNpc(INpc &npc, IPlayer &to, float amount, unsigned int weapon, BodyPart part) {
   static constexpr auto publicName = "OnPlayerTakeDamageNpc";
 
@@ -150,17 +204,17 @@ void NpcComponent::onPlayerTakeDamageNpc(INpc &npc, IPlayer &to, float amount, u
   }
 }
 
-void NpcComponent::onNpcDeath(INpc &npc, IPlayer &killer, int reason) {
+void NpcComponent::onNpcDeath(INpc &npc, IPlayer *killer, int reason) {
   static constexpr auto publicName = "OnNpcDeath";
 
   if (pawnComponent == nullptr) return;
 
   for (auto sideScript : pawnComponent->sideScripts()) {
-    auto ret = sideScript->Call(publicName, DefaultReturnValue_False, npc.getID(), killer.getID(), reason);
+    auto ret = sideScript->Call(publicName, DefaultReturnValue_False, npc.getID(), killer == nullptr ? INVALID_PLAYER_ID : killer->getID(), reason);
     if (ret) break;
   }
   if (auto mainScript = pawnComponent->mainScript(); mainScript != nullptr) {
-    mainScript->Call(publicName, DefaultReturnValue_False, npc.getID(), killer.getID(), reason);
+    mainScript->Call(publicName, DefaultReturnValue_False, npc.getID(), killer == nullptr ? INVALID_PLAYER_ID : killer->getID(), reason);
   }
 }
 
@@ -260,22 +314,32 @@ bool NpcComponent::NpcControlRPCHandler::onReceive(IPlayer &peer, NetworkBitStre
 
   auto &npc = dynamic_cast<Npc&>(*npc_);
   if (rpc.Type == NpcControlRpc::NpcControlRpcType_TakeDamage) {
+    IPlayer* dealingPeer = &peer;
     if (npc.invulnerable) return false;
     if (rpc.GiveTakeDamage.Damage < 0.f) return false;
     if (rpc.GiveTakeDamage.Bodypart < BodyPart_Torso || rpc.GiveTakeDamage.Bodypart > BodyPart_Head) return false;
     if (!IsWeaponForTakenDamageValid(rpc.GiveTakeDamage.WeaponID)) return false;
     if (npc.health <= 0.f) return false;
-
-    if (!NpcComponent::instance().npcDamageDispatcher.stopAtFalse([&](auto *handler) {
-      return handler->onPlayerGiveDamageNpc(*npc_, peer, rpc.GiveTakeDamage.Damage, rpc.GiveTakeDamage.WeaponID, BodyPart(rpc.GiveTakeDamage.Bodypart));
-    })) return false;
+    if (rpc.GiveTakeDamage.DamagerNpcId != INVALID_NPC_ID) {
+      auto damagerNpc = NpcComponent::instance().get(rpc.GiveTakeDamage.DamagerNpcId);
+      if (damagerNpc == nullptr || !damagerNpc->isStreamedInForPlayer(peer)) return false;
+      if (!npc.isPlayerReliableForSync(peer)) return false;
+      if (!NpcComponent::instance().npcDamageDispatcher.stopAtFalse([&](auto *handler) {
+        return handler->onNpcGiveDamageNpc(*npc_, *damagerNpc, rpc.GiveTakeDamage.Damage, rpc.GiveTakeDamage.WeaponID, BodyPart(rpc.GiveTakeDamage.Bodypart));
+      })) return false;
+      dealingPeer = nullptr;
+    } else {
+      if (!NpcComponent::instance().npcDamageDispatcher.stopAtFalse([&](auto *handler) {
+        return handler->onPlayerGiveDamageNpc(*npc_, peer, rpc.GiveTakeDamage.Damage, rpc.GiveTakeDamage.WeaponID, BodyPart(rpc.GiveTakeDamage.Bodypart));
+      })) return false;
+    }
 
     npc.health = std::max(0.f, npc.health - rpc.GiveTakeDamage.Damage);
 
     if (npc.health <= 0.f) {
       NpcComponent::instance().npcDamageDispatcher.dispatch(
           &NpcDamageEventHandler::onNpcDeath,
-          *npc_, peer, rpc.GiveTakeDamage.WeaponID
+          *npc_, dealingPeer, rpc.GiveTakeDamage.WeaponID
       );
     }
 

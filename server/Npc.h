@@ -6,14 +6,18 @@
 #include <network.hpp>
 #include <packet.hpp>
 
-#include "NpcTask.hpp"
-
 using namespace Impl;
 
 enum NpcWeaponSkillType {
   NpcWeaponSkillType_Poor = 0,
   NpcWeaponSkillType_STD = 1,
   NpcWeaponSkillType_Pro = 2
+};
+
+enum NpcMoveMode {
+  NpcMoveMode_Walk,
+  NpcMoveMode_Run,
+  NpcMoveMode_Sprint
 };
 
 struct INpc : public IExtensible, public IEntity {
@@ -68,6 +72,18 @@ struct INpc : public IExtensible, public IEntity {
   /// Set npc weapon skill
   virtual void setWeaponSkill(NpcWeaponSkillType skill) = 0;
 
+  /// Put npc to vehicle
+  virtual void putInVehicle(IVehicle& vehicle, int seat) = 0;
+
+  /// Remove npc from vehicle
+  virtual void removeFromVehicle() = 0;
+
+  /// Get the npc current vehicle
+  virtual IVehicle* getVehicle() const = 0;
+
+  /// Get the npc curent vehicle seat index
+  virtual int getVehicleSeat() const = 0;
+
   /// Clears npc active tasks
   /// Currently that's the alias to standStill
   virtual void clearActiveTasks() = 0;
@@ -81,12 +97,17 @@ struct INpc : public IExtensible, public IEntity {
   // Npc will attack specified player
   virtual void attackPlayer(const IPlayer &player, bool aggressive = false) = 0;
 
+  /// Npc will attack another npc
+  virtual void attackNpc(const INpc &target, bool aggressive = false) = 0;
+
   // Npc will follow specified player
   virtual void followPlayer(const IPlayer &player) = 0;
 
   /// Npc will play specified animation
   virtual void playAnimation(const AnimationData &animation) = 0;
 };
+
+#include "NpcTask.hpp"
 
 class Npc : public INpc,
             public PoolIDProvider,
@@ -105,6 +126,7 @@ public:
   void broadcastSync();
   bool updateFromSync(const struct NpcSyncPacket &syncPacket, IPlayer *sender = nullptr);
   void broadcastActiveTask();
+  bool isPlayerReliableForSync(const IPlayer &player) const;
 
   // Inherited from INpc
   bool isStreamedInForPlayer(const IPlayer &player) const override;
@@ -122,11 +144,16 @@ public:
   void setWeaponShootingAccuracy(uint8_t accuracy) override;
   void setWeaponShootingRate(uint8_t shootingRate) override;
   void setWeaponSkill(NpcWeaponSkillType skill) override;
+  void putInVehicle(IVehicle& vehicle, int seat) override;
+  void removeFromVehicle() override;
+  IVehicle* getVehicle() const override;
+  int getVehicleSeat() const override;
   uint8_t getWeapon() const override;
   void clearActiveTasks() override;
   void standStill() override;
   void goToPoint(const Vector3 &destination, NpcMoveMode mode) override;
   void attackPlayer(const IPlayer &player, bool aggressive) override;
+  void attackNpc(const INpc &target, bool aggressive) override;
   void followPlayer(const IPlayer &player) override;
   void playAnimation(const AnimationData &animation) override;
 
@@ -160,6 +187,9 @@ public:
 
   TimePoint lastSyncBroadcast;
   bool shouldBroadcastSyncPacket;
+
+  IVehicle* currentVehicle;
+  int8_t currentVehicleSeat;
 
   UniqueIDArray<IPlayer, PLAYER_POOL_SIZE> streamedFor_;
   UniqueIDArray<IPlayer, PLAYER_POOL_SIZE> verifiedSupportedPlayers_; // players who have sent npc sync once at least

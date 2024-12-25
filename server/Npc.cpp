@@ -16,6 +16,7 @@ Npc::Npc(int skin, Vector3 position, bool* allAnimationLibraries, bool* validate
       shouldBroadcastSyncPacket(false),
       weaponSkill(NpcWeaponSkillType_STD),
       currentTask(NpcTaskStandStill()),
+      currentVehicle(nullptr),
 
       allAnimationLibraries_(allAnimationLibraries),
       validateAnimations_(validateAnimations) {
@@ -75,6 +76,8 @@ void Npc::broadcastSync() {
   data.Position = pos;
   data.Heading = angle;
   data.Health = health;
+  data.VehicleId = currentVehicle != nullptr ? currentVehicle->getID() : INVALID_VEHICLE_ID;
+  data.VehicleSeatIndex = currentVehicle != nullptr ? currentVehicleSeat : 0;
 
   PacketHelper::broadcastToSome(data, streamedFor_.entries());
 }
@@ -161,6 +164,39 @@ void Npc::setWeaponSkill(NpcWeaponSkillType skill) {
   restream();
 }
 
+void Npc::putInVehicle(IVehicle &vehicle, int seat) {
+  if (seat < 0) {
+    return;
+  }
+
+  currentVehicle = &vehicle;
+  currentVehicleSeat = seat;
+
+  broadcastSync();
+}
+
+void Npc::removeFromVehicle() {
+  if (currentVehicle == nullptr) {
+    return;
+  }
+
+  pos = currentVehicle->getPosition();
+  virtualWorld = currentVehicle->getVirtualWorld();
+
+  currentVehicle = nullptr;
+  currentVehicleSeat = 0;
+
+  broadcastSync();
+}
+
+IVehicle* Npc::getVehicle() const {
+  return currentVehicle;
+}
+
+int Npc::getVehicleSeat() const {
+  return currentVehicle != nullptr ? currentVehicleSeat : SEAT_NONE;
+}
+
 uint8_t Npc::getWeapon() const {
   return currentWeaponId;
 }
@@ -191,6 +227,14 @@ void Npc::attackPlayer(const IPlayer &player, bool aggressive) {
   broadcastActiveTask();
 }
 
+void Npc::attackNpc(const INpc &target, bool aggressive) {
+  NpcTaskAttackNpc task;
+  task.target = &target;
+  task.aggressive = aggressive;
+  currentTask = task;
+  broadcastActiveTask();
+}
+
 void Npc::followPlayer(const IPlayer &player) {
   NpcTaskFollowPlayer task;
   task.target = &player;
@@ -214,6 +258,9 @@ int Npc::getID() const {
 }
 
 Vector3 Npc::getPosition() const {
+  if (currentVehicle != nullptr) {
+    return currentVehicle->getPosition();
+  }
   return pos;
 }
 
@@ -232,6 +279,9 @@ void Npc::setRotation(GTAQuat rotation) {
 }
 
 int Npc::getVirtualWorld() const {
+  if (currentVehicle != nullptr) {
+    return currentVehicle->getVirtualWorld();
+  }
   return virtualWorld;
 }
 
@@ -243,7 +293,9 @@ bool Npc::updateFromSync(const NpcSyncPacket &syncPacket, IPlayer *sender) {
   if (sender != nullptr) {
     verifiedSupportedPlayers_.add(sender->getID(), *sender);
   }
-  const auto dist3D = syncPacket.Position - getPosition();
+  const auto newPos = currentVehicle != nullptr ? currentVehicle->getPosition() : syncPacket.Position;
+
+  const auto dist3D = newPos - getPosition();
   const auto dist = glm::dot(dist3D, dist3D);
 
   auto distSqr = [](const float value) {
@@ -252,7 +304,6 @@ bool Npc::updateFromSync(const NpcSyncPacket &syncPacket, IPlayer *sender) {
 
   if (dist > distSqr(3.f)) {
     const auto currentPos = getPosition();
-    const auto newPos = syncPacket.Position;
 
     const auto currentPos2D = Vector2(currentPos);
     const auto newPos2D = Vector2(newPos);
@@ -325,7 +376,7 @@ bool Npc::updateFromSync(const NpcSyncPacket &syncPacket, IPlayer *sender) {
   }
 
   shouldBroadcastSyncPacket = true;
-  pos = syncPacket.Position;
+  pos = newPos;
   angle = syncPacket.Heading;
 
   return true;
@@ -337,4 +388,46 @@ void Npc::broadcastActiveTask() {
   rpc.NpcID = getID();
   rpc.StreamIn.Task = currentTask;
   PacketHelper::broadcastToSome(rpc, streamedFor_.entries());
+}
+
+bool Npc::isPlayerReliableForSync(const IPlayer &player) const {
+  if (!isStreamedInForPlayer(player)) {
+    return false;
+  }
+  if (streamedFor_.entries().size() == 1) {
+    return true;
+  }
+  const IPlayer *prioritizedPlayer = nullptr;
+  if (const auto task = std::get_if<NpcTaskFollowPlayer>(&currentTask); task != nullptr) {
+    prioritizedPlayer = task->target;
+  }
+//  else if (const auto task = std::get_if<NpcTaskAttackPlayer>(&currentTask); task != nullptr) {
+//    prioritizedPlayer = task->target;
+//  }
+  if (prioritizedPlayer != nullptr
+      && (NpcComponent::instance().isPlayerAfk(*prioritizedPlayer) || !isStreamedInForPlayer(*prioritizedPlayer) || !verifiedSupportedPlayers_.valid(prioritizedPlayer->getID()))
+      ) {
+    prioritizedPlayer = nullptr; // well, yeah
+  }
+
+  if (prioritizedPlayer != nullptr) {
+    if (player.getID() != prioritizedPlayer->getID()) {
+      return false;
+    }
+  } else {
+    // player in spectator shouldn't have the same rights to send sync, instead, prioritize non-spectating ones
+    const auto distFromPlayer = glm::distance(player.getPosition(), pos) + ((player.getState() == PlayerState_Spectating) ? 5.f : 0.f);
+    const auto &entries = streamedFor_.entries();
+    for (const auto comparable : entries) {
+      if (comparable->getID() == player.getID() || NpcComponent::instance().isPlayerAfk(*comparable) || !verifiedSupportedPlayers_.valid(comparable->getID())) {
+        continue;
+      }
+      // player in spectator shouldn't have the same rights to send sync, instead, prioritize non-spectating one
+      const auto otherDist = glm::distance(comparable->getPosition(), pos) + ((comparable->getState() == PlayerState_Spectating) ? 5.f : 0.f);
+      if (otherDist < distFromPlayer) {
+        return false;
+      }
+    }
+  }
+  return true;
 }

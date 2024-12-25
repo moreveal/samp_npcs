@@ -43,6 +43,9 @@ struct npc_sync_receive_data_t {
   float heading = 0.f;
 
   float health = 100.f;
+
+  uint16_t vehicle = 65535;
+  uint8_t vehicle_seat = 0;
 };
 #pragma pack(pop)
 

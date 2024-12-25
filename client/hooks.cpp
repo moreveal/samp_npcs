@@ -194,13 +194,17 @@ void npcs_module::hooks::mainloop(const decltype(CTimer_Update_hook) &hook) {
 BOOL npcs_module::hooks::SAMP_DamageHandler(const decltype(SAMP_DamageHandler_hook) &hook,
                                             uintptr_t damage_response_calculator, // actually an CPedDamageResponseCalculator
                                             CPed *ped) {
+  const auto damager = *reinterpret_cast<CEntity **>(damage_response_calculator + 0x0);
+
   auto result = hook.call_trampoline(damage_response_calculator, ped);
-  if (!result) { // if samp did not handle it
+  if (!result || find_npc_by_game_ped(reinterpret_cast<CPed*>(damager)) != npcs.end()) {
+    // if samp did not handle it or damager is npc
+    // check for damager is there because samp returns true if damager is not a local player ped
+
     // not sure why multiplication is there
     // actually it's 0.33000001
     const auto &samp_damage_multiplier = *reinterpret_cast<float *>(utils::get_samp_module() + 0xE5900);
 
-    const auto damager = *reinterpret_cast<CEntity **>(damage_response_calculator + 0x0);
     const auto damage_amount = *reinterpret_cast<float *>(damage_response_calculator + 0x4) * samp_damage_multiplier;
     const auto body_part = *reinterpret_cast<uint32_t *>(damage_response_calculator + 0x8);
     const auto weapon_type = *reinterpret_cast<uint32_t *>(damage_response_calculator + 0xC);

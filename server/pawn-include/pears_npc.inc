@@ -69,8 +69,16 @@ native bool:SetNpcWeaponShootingAccuracy(NPC:npc, accuracy);
 native bool:SetNpcWeaponShootingRate(NPC:npc, shootingrate);
 native bool:SetNpcWeaponSkill(NPC:npc, NPC_SKILL_TYPE:skill);
 
+native bool:PutNpcInVehicle(NPC:npc, vehicleid, seat);
+native bool:RemoveNpcFromVehicle(NPC:npc);
+native GetNpcVehicleID(NPC:npc);
+native GetNpcVehicleSeat(NPC:npc);
+native bool:IsNpcInVehicle(NPC:npc, vehicleid);
+native bool:IsNpcInAnyVehicle(NPC:npc);
+
 native bool:TaskNpcStandStill(NPC:npc);
 native bool:TaskNpcAttackPlayer(NPC:npc, playerid, bool:aggressive = false);
+native bool:TaskNpcAttackNpc(NPC:npc, NPC:target, bool:aggressive = false);
 native bool:TaskNpcGoToPoint(NPC:npc, Float:x, Float:y, Float:z, NPC_MOVE_MODE:mode = NPC_MOVE_MODE_WALK);
 native bool:TaskNpcFollowPlayer(NPC:npc, playerid);
 native bool:TaskNpcPlayAnimation(NPC:npc, const animationLibrary[], const animationName[], Float:delta, bool:loop, bool:lockX, bool:lockY, bool:freeze, time);
@@ -91,5 +99,6 @@ native bool:TaskNpcPlayAnimation(NPC:npc, const animationLibrary[], const animat
 */
 
 forward bool:OnPlayerGiveDamageNpc(NPC:npc, damagerid, Float:amount, weaponid, bodypart);
+forward bool:OnNpcGiveDamageNpc(NPC:npc, NPC:damager, Float:amount, weaponid, bodypart);
 forward OnPlayerTakeDamageNpc(NPC:npc, issuerid, Float:amount, weaponid, bodypart);
 forward OnNpcDeath(NPC:npc, killerid, reason);

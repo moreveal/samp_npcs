@@ -1,5 +1,7 @@
 #pragma once
 
+const int INVALID_NPC_ID = 0xFFFF;
+
 struct NpcControlRpc : NetworkPacketBase<NpcComponent::kNpcControlRpcId, NetworkPacketType::RPC, OrderingChannel_SyncRPC> {
   enum NpcControlRpcType {
     NpcControlRpcType_StreamIn,
@@ -35,6 +37,7 @@ struct NpcControlRpc : NetworkPacketBase<NpcComponent::kNpcControlRpcId, Network
     float Damage;
     uint8_t WeaponID;
     uint8_t Bodypart;
+    uint16_t DamagerNpcId; ///< id of npc who dealing a damage to this npc
   } GiveTakeDamage;
 
   bool read(NetworkBitStream& bs) {
@@ -52,6 +55,10 @@ struct NpcControlRpc : NetworkPacketBase<NpcComponent::kNpcControlRpcId, Network
     if (!bs.readFLOAT(GiveTakeDamage.Damage)) return false;
     if (!bs.readUINT8(GiveTakeDamage.WeaponID)) return false;
     if (!bs.readUINT8(GiveTakeDamage.Bodypart)) return false;
+    GiveTakeDamage.DamagerNpcId = INVALID_NPC_ID;
+    if (Type == NpcControlRpcType_TakeDamage && !bs.readUINT16(GiveTakeDamage.DamagerNpcId)) {
+      GiveTakeDamage.DamagerNpcId = INVALID_NPC_ID;
+    }
 
     return true;
   }
@@ -89,6 +96,9 @@ struct NpcSyncPacket : NetworkPacketBase<NpcComponent::kNpcSyncPacketId, Network
 
   float Health;
 
+  int VehicleId;
+  int VehicleSeatIndex;
+
   bool read(NetworkBitStream& bs) {
     if (!bs.readUINT16(NpcID)) return false;
     if (!bs.readPosVEC3(Position)) return false;
@@ -104,5 +114,7 @@ struct NpcSyncPacket : NetworkPacketBase<NpcComponent::kNpcSyncPacketId, Network
     bs.writeVEC3(Position);
     bs.writeFLOAT(Heading);
     bs.writeFLOAT(Health);
+    bs.writeUINT16(VehicleId);
+    bs.writeINT8(VehicleSeatIndex);
   }
 };

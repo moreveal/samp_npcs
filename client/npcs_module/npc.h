@@ -15,6 +15,7 @@ class npc {
 
   uint16_t my_id = 0; // 0 is an invalid npc id
   uint16_t player_attack_to = kInvalidTargetId;
+  uint16_t npc_attack_to = kInvalidTargetId;
   bool aggressive_attack = false;
   uint16_t player_follow_to = kInvalidTargetId;
 
@@ -43,6 +44,10 @@ public:
   void set_weapon_skill(uint8_t skill);
   void set_current_weapon(uint8_t weapon_id, uint32_t ammo, uint16_t ammo_in_clip = 0xFFFF);
   void set_health(float health);
+  void put_in_vehicle(CVehicle *vehicle, int seat);
+  void remove_from_vehicle();
+  void enter_vehicle(CVehicle *vehicle, int seat, std::chrono::milliseconds timeout = std::chrono::milliseconds(5000));
+  void exit_vehicle(bool immediately = false);
 
   void update();
   void update_from_sync(const struct npc_sync_receive_data_t &data);
@@ -50,6 +55,7 @@ public:
 
   // Tasks
   void attack_player(uint16_t samp_player_id, bool aggressive = false);
+  void attack_npc(uint16_t samp_npc_id, bool aggressive = false);
   void follow_player(uint16_t samp_player_id);
   void stand_still();
   void wander();
@@ -66,6 +72,7 @@ public:
   bool is_stun_enabled() const;
   bool is_aggressive_attack() const;
   CPed *get_ped() const;
+  CVehicle *get_vehicle() const;
 private:
   std::chrono::milliseconds get_sync_send_rate() const;
   bool is_dead() const;
@@ -79,9 +86,14 @@ private:
   uint16_t get_follow_target() const;
 
   // Attack task helpers
-  bool is_attacking_target() const;
-  bool should_attack_target() const;
-  uint16_t get_attack_target() const;
+  bool is_attacking_player_target() const;
+  bool should_attack_player_target() const;
+  uint16_t get_attack_player_target() const;
+
+  // Npc attack task helpers
+  bool is_attacking_npc_target() const;
+  bool should_attack_npc_target() const;
+  uint16_t get_attack_npc_target() const;
 
   eTaskType get_active_task_type() const;
   CTask *get_active_task() const;
