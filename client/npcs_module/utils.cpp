@@ -424,13 +424,6 @@ std::filesystem::path npcs_module::utils::get_appdata_path() {
   return L"";
 }
 
-std::filesystem::path npcs_module::utils::get_config_file_path() {
-  if (const auto appdata_path = get_appdata_path(); !appdata_path.empty()) {
-    return appdata_path / L"Pears Project" / L"Game" / L"npcs_settings.json";
-  }
-  return L"";
-}
-
 HWND npcs_module::utils::get_game_hwnd() {
   auto game_hwnd = *reinterpret_cast<HWND **>(0xC17054);
   if (game_hwnd == nullptr) {

@@ -48,7 +48,6 @@ LPDIRECT3DDEVICE9 get_d3d_device();
 std::string cp1251_to_utf8(const std::string &text);
 void show_cursor(bool show);
 std::filesystem::path get_appdata_path();
-std::filesystem::path get_config_file_path();
 
 // Hook helpers
 void unprotect_and_run(uintptr_t address, size_t size, const std::function<void(uint8_t *)> &callback);

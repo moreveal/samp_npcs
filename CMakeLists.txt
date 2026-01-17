@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.9)
-project(pears_npcs VERSION 0.1.0.0)
+project(samp_npcs VERSION 0.1.0.0)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/")
 
