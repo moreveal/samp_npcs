@@ -1,3 +1,7 @@
+if (NOT BUILD_CLIENT)
+    return()
+endif ()
+
 set(TARGET_NAME ${PROJECT_NAME}_client)
 
 if (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
